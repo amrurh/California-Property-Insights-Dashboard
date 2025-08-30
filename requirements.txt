@@ -5,3 +5,4 @@ joblib
 streamlit-folium
 folium
 plotly
+streamlit-option-menu

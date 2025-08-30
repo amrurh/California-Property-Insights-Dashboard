@@ -48,7 +48,7 @@ def investor_view():
     Menampilkan halaman untuk investor yang memungkinkan mereka melakukan prediksi harga
     berdasarkan input fitur properti.
     """
-    st.header("📈 Prediktor Harga Properti untuk Investor")
+    st.header("📈 Prediktor Harga Properti untuk Investment Predictor")
     st.write("Klik titik di peta untuk memilih lokasi, atau masukkan koordinat manual. Lengkapi spesifikasi properti di bawah untuk mendapatkan estimasi harga.")
 
     # Inisialisasi session state untuk menyimpan lokasi yang diklik peta
@@ -245,13 +245,13 @@ st.title("🏠 California Property Insights Dashboard")
 # Navigasi di sidebar
 selected_view = st.sidebar.radio(
     "Pilih Tampilan Anda:",
-    ("Investor", "Market Survey"),
+    ("Investment Predictor", "Market Survey"),
     key="view_selector"
 )
 
 # Menampilkan halaman yang dipilih berdasarkan navigasi
 if df is not None and model is not None:
-    if selected_view == "Investor":
+    if selected_view == "Investment Predictor":
         investor_view()
     elif selected_view == "Market Survey":
         buyer_view()

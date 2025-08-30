@@ -1,1 +1,6 @@
-text streamlit pandas scikit-learn joblib streamlit-folium folium
+streamlit
+pandas
+scikit-learn
+joblib
+streamlit-folium
+folium

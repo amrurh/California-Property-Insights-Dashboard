@@ -145,13 +145,13 @@ def investor_view():
         else:
             st.error("Model tidak dapat dimuat, prediksi tidak bisa dilakukan.")
 
-# --- FUNGSI TAMPILAN UNTUK PEMBELI ---
+# --- FUNGSI TAMPILAN UNTUK Market Survey ---
 def buyer_view():
     """
-    Menampilkan halaman untuk pembeli yang memungkinkan mereka memfilter dan
+    Menampilkan halaman untuk Market Survey yang memungkinkan mereka memfilter dan
     mengeksplorasi properti yang ada di dataset.
     """
-    st.header("🏡 Eksplorasi Properti untuk Pembeli")
+    st.header("🏡 Eksplorasi Properti untuk Market Survey")
     st.write("Gunakan filter di sidebar untuk menemukan area properti yang sesuai dengan kriteria Anda.")
 
     # --- Filter di Sidebar ---
@@ -245,7 +245,7 @@ st.title("🏠 California Property Insights Dashboard")
 # Navigasi di sidebar
 selected_view = st.sidebar.radio(
     "Pilih Tampilan Anda:",
-    ("Investor", "Pembeli"),
+    ("Investor", "Market Survey"),
     key="view_selector"
 )
 
@@ -253,7 +253,7 @@ selected_view = st.sidebar.radio(
 if df is not None and model is not None:
     if selected_view == "Investor":
         investor_view()
-    elif selected_view == "Pembeli":
+    elif selected_view == "Market Survey":
         buyer_view()
 else:
     st.error("Gagal memuat data atau model. Aplikasi tidak dapat berjalan. Mohon periksa file di direktori Anda.")

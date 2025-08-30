@@ -48,7 +48,7 @@ def investor_view():
     Menampilkan halaman untuk investor yang memungkinkan mereka melakukan prediksi harga
     berdasarkan input fitur properti.
     """
-    st.header("📈 Prediktor Harga Properti untuk Investment Predictor")
+    st.header("📈 Prediktor Harga Properti untuk Investasi")
     st.write("Klik titik di peta untuk memilih lokasi, atau masukkan koordinat manual. Lengkapi spesifikasi properti di bawah untuk mendapatkan estimasi harga.")
 
     # Inisialisasi session state untuk menyimpan lokasi yang diklik peta

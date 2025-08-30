@@ -245,7 +245,7 @@ st.title("🏠 California Property Insights Dashboard")
 # Navigasi di sidebar
 selected_view = st.sidebar.radio(
     "Pilih Tampilan Anda:",
-    ("Investment Predictor", "Market Survey"),
+    ("Market Survey", "Investment Predictor"),
     key="view_selector"
 )
 

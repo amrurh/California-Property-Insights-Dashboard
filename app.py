@@ -157,7 +157,6 @@ def buyer_view():
     # --- Filter di Sidebar ---
     st.sidebar.title("Filter Properti")
     
-    # PERBAIKAN: Menggunakan nilai min/max dari data secara dinamis
     min_price = int(df['median_house_value'].min())
     max_price = int(df['median_house_value'].max())
     price_range = st.sidebar.slider(
@@ -167,19 +166,17 @@ def buyer_view():
         value=(min_price, 200000)
     )
 
-    # PERBAIKAN BUG: Mengoreksi typo dari 'multilibelect' menjadi 'multiselect'.
     location_filter = st.sidebar.multiselect(
         'Pilih Lokasi',
         options=df['ocean_proximity'].unique(),
         default=df['ocean_proximity'].unique()
     )
     
-    # PERBAIKAN: Batas atas slider dibuat dinamis tapi dibatasi agar lebih usable
     max_rooms = int(df['total_rooms'].max())
     rooms_range = st.sidebar.slider(
         'Rentang Total Ruang',
         min_value=int(df['total_rooms'].min()),
-        max_value=min(max_rooms, 10000), # Batasi max value agar slider tidak terlalu lebar
+        max_value=min(max_rooms, 10000),
         value=(1000, 3000)
     )
 
@@ -191,45 +188,79 @@ def buyer_view():
         value=(200, 600)
     )
 
-    # Melakukan filter pada DataFrame berdasarkan input dari sidebar
     filtered_df = df[
         (df['median_house_value'].between(price_range[0], price_range[1])) &
         (df['ocean_proximity'].isin(location_filter)) &
         (df['total_rooms'].between(rooms_range[0], rooms_range[1])) &
         (df['total_bedrooms'].between(bedrooms_range[0], bedrooms_range[1]))
-    ]
+    ].copy()
 
     st.write(f"Ditemukan **{len(filtered_df)}** blok properti yang sesuai dengan kriteria Anda.")
 
     # --- Visualisasi Peta ---
+    st.subheader("Peta Sebaran Properti")
+
+    # Tambahkan toggle untuk pewarnaan peta
+    color_by = st.radio(
+        "Pilih pewarnaan plot:",
+        ('Intensitas Harga', 'Kategori Lokasi'),
+        horizontal=True,
+        key='color_toggle'
+    )
+
     if not filtered_df.empty:
-        # SOLUSI TOOLTIP: Mengganti HexagonLayer dengan ScatterplotLayer
+        layer = None
+        if color_by == 'Intensitas Harga':
+            layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=filtered_df,
+                get_position='[longitude, latitude]',
+                get_fill_color='[255, (255 - (median_house_value / 2000)), 0, 140]',
+                get_radius=1500,
+                pickable=True,
+            )
+            st.info("💡 **Catatan Peta:** Warna titik merepresentasikan harga properti. **Kuning** untuk harga lebih rendah, dan semakin **merah** untuk harga yang lebih tinggi.")
+        else: # Kategori Lokasi
+            ocean_palette = {
+                'NEAR BAY': (120, 173, 210, 140),
+                '<1H OCEAN': (255, 178, 110, 140),
+                'INLAND': (128, 198, 128, 140),
+                'NEAR OCEAN': (230, 125, 126, 140),
+                'ISLAND': (190, 164, 215, 140)
+            }
+            filtered_df['color'] = filtered_df['ocean_proximity'].map(ocean_palette)
+            
+            layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=filtered_df,
+                get_position='[longitude, latitude]',
+                get_fill_color='color', # Gunakan kolom warna yang baru dibuat
+                get_radius=1500,
+                pickable=True,
+            )
+            
+            # Buat legenda manual untuk kategori lokasi
+            st.markdown("##### Legenda Kategori Lokasi:")
+            cols = st.columns(len(ocean_palette))
+            for i, (category, color) in enumerate(ocean_palette.items()):
+                with cols[i]:
+                    st.markdown(
+                        f'<p style="color:rgb{color[:3]}; font-weight: bold;">■ {category}</p>',
+                        unsafe_allow_html=True
+                    )
+        
         st.pydeck_chart(pdk.Deck(
             map_style='https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
             initial_view_state=pdk.ViewState(
                 latitude=filtered_df['latitude'].mean(),
                 longitude=filtered_df['longitude'].mean(),
                 zoom=6,
-                pitch=45, # Sedikit mengurangi pitch untuk tampilan scatterplot
+                pitch=45,
             ),
-            layers=[
-                pdk.Layer(
-                   'ScatterplotLayer',
-                   data=filtered_df,
-                   get_position='[longitude, latitude]',
-                   get_fill_color='[255, (255 - (median_house_value / 2000)), 0, 140]', # Warna berdasarkan harga
-                   get_radius=1500, # Radius setiap titik
-                   pickable=True,
-                ),
-            ],
-            # PERBAIKAN TOOLTIP: Menghapus format string (:,.0f) yang tidak valid agar nilai dapat ditampilkan.
+            layers=[layer],
             tooltip={"html": "Median Harga: <b>${median_house_value}</b><br/>Lokasi: {ocean_proximity}"}
         ))
 
-        # PENAMBAHAN: Menambahkan catatan untuk menjelaskan arti warna pada peta
-        st.info("💡 **Catatan Peta:** Warna titik merepresentasikan harga properti. **Kuning** untuk harga lebih rendah, dan semakin **merah** untuk harga yang lebih tinggi.")
-
-        # PERBAIKAN: Menghapus "(Contoh Data)" dari subheader
         st.subheader("Detail Properti yang Difilter")
         st.dataframe(filtered_df[[
             'longitude', 'latitude', 'median_house_value', 'ocean_proximity', 

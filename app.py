@@ -6,7 +6,7 @@ import pydeck as pdk
 from streamlit_folium import st_folium
 import folium
 
-# --- KONFIGURASI HALAMAN ---
+# --- KONFIGURasi HALAMAN ---
 st.set_page_config(
     page_title="California Property Insights",
     page_icon="🏠",

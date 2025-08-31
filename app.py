@@ -258,7 +258,12 @@ def buyer_view():
                 pitch=45,
             ),
             layers=[layer],
-            tooltip={"html": "Median Harga: <b>${median_house_value}</b><br/>Lokasi: {ocean_proximity}"}
+            # --- PERUBAHAN DI SINI ---
+            tooltip={
+                "html": "Median Harga: <b>${median_house_value}</b><br/>"
+                        "Lokasi: {ocean_proximity}<br/>"
+                        "Pendapatan Median: <b>${median_income}</b> (x $10.000)"
+            }
         ))
 
         st.subheader("Detail Properti yang Difilter")
@@ -288,4 +293,3 @@ if df is not None and model is not None:
         buyer_view()
 else:
     st.error("Gagal memuat data atau model. Aplikasi tidak dapat berjalan. Mohon periksa file di direktori Anda.")
-

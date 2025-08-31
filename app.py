@@ -1,291 +1,273 @@
-import streamlit as st
+# Import necessary libraries
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output, State
+import plotly.express as px
 import pandas as pd
-import numpy as np
 import joblib
-import pydeck as pdk
-from streamlit_folium import st_folium
-import folium
+import numpy as np
 
-# --- KONFIGURasi HALAMAN ---
-st.set_page_config(
-    page_title="California Property Insights",
-    page_icon="🏠",
-    layout="wide"
-)
+# Load the dataset
+file_path = 'BI - California Housing Dataset.csv'
+df = pd.read_csv(file_path, delimiter=';')
 
-# --- FUNGSI UNTUK MEMUAT DATA & MODEL ---
-# Menggunakan cache agar model dan data hanya dimuat sekali untuk performa lebih baik.
-@st.cache_resource
-def load_model():
-    """Memuat model prediksi yang sudah dilatih."""
-    try:
-        # Pastikan file model ini ada di direktori yang sama dengan skrip Anda.
-        model = joblib.load('california_house_price_model.joblib')
-        return model
-    except FileNotFoundError:
-        st.error("File model 'california_house_price_model.joblib' tidak ditemukan. Pastikan file berada di folder yang sama dengan skrip ini.")
-        return None
+# Drop rows with missing target values (median_house_value)
+df.dropna(subset=['median_house_value'], inplace=True)
 
-@st.cache_data
-def load_data():
-    """Memuat dataset asli untuk visualisasi."""
-    try:
-        # Pastikan file CSV ini ada di direktori yang sama dengan skrip Anda.
-        df = pd.read_csv('BI - California Housing Dataset.csv', delimiter=';')
-        df.dropna(inplace=True) # Membersihkan data dari nilai kosong untuk visualisasi yang stabil
-        return df
-    except FileNotFoundError:
-        st.error("File dataset 'BI - California Housing Dataset.csv' tidak ditemukan. Pastikan file berada di folder yang sama dengan skrip ini.")
-        return None
+# Preprocessing for the model
+df['total_bedrooms'].fillna(df['total_bedrooms'].median(), inplace=True)
+df['rooms_per_person'] = df['total_rooms'] / df['population']
+df['bedrooms_per_room'] = df['total_bedrooms'] / df['total_rooms']
+df['population_per_household'] = df['population'] / df['households']
 
-# Memuat model dan data di awal
-model = load_model()
-df = load_data()
+# Load the pre-trained model
+model = joblib.load('california_house_price_model.joblib')
 
-# --- FUNGSI TAMPILAN UNTUK INVESTOR ---
-def investor_view():
-    """
-    Menampilkan halaman untuk investor yang memungkinkan mereka melakukan prediksi harga
-    berdasarkan input fitur properti.
-    """
-    st.header("📈 Prediktor Harga Properti untuk Investasi")
-    st.write("Klik titik di peta untuk memilih lokasi, atau masukkan koordinat manual. Lengkapi spesifikasi properti di bawah untuk mendapatkan estimasi harga.")
+# Initialize the Dash app
+app = dash.Dash(__name__)
+server = app.server
 
-    # Inisialisasi session state untuk menyimpan lokasi yang diklik peta
-    if 'clicked_location' not in st.session_state:
-        st.session_state.clicked_location = {'lat': 34.05, 'lng': -118.24} # Default: Los Angeles
-
-    # --- Peta Interaktif untuk Memilih Lokasi ---
-    st.subheader("Pilih Lokasi di Peta")
-    m = folium.Map(location=[36.77, -119.41], zoom_start=6) # Titik tengah California
+# Define the layout of the app
+app.layout = html.Div(style={'backgroundColor': '#1E1E1E', 'color': 'white', 'font-family': 'Arial, sans-serif'}, children=[
+    html.Div([
+        html.H1("California Property Insights Dashboard", style={'textAlign': 'center', 'margin-bottom': '10px'}),
+        html.P("Analyze and predict California housing data with interactive visualizations and a machine learning model.", style={'textAlign': 'center', 'margin-bottom': '40px'})
+    ]),
     
-    # Tambahkan event handler agar peta bisa merespon klik dan menampilkan popup koordinat
-    folium.LatLngPopup().add_to(m)
-
-    map_data = st_folium(m, width='100%', height=500) # Atur tinggi peta agar tidak terlalu dominan
-
-    # Perbarui session state jika ada lokasi baru yang diklik di peta
-    if map_data and map_data['last_clicked']:
-        st.session_state.clicked_location = map_data['last_clicked']
-
-    # --- INPUT FITUR PROPERTI ---
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("📍 Lokasi Properti")
-        # Gunakan nilai dari session state sebagai nilai default input
-        lat_val = st.session_state.clicked_location['lat']
-        lon_val = st.session_state.clicked_location['lng']
+    # Main content area with two columns
+    html.Div(style={'display': 'flex', 'flex-direction': 'row', 'gap': '20px', 'padding': '20px'}, children=[
         
-        latitude = st.number_input('Latitude', value=lat_val, format="%.4f")
-        longitude = st.number_input('Longitude', value=lon_val, format="%.4f")
-
-        ocean_proximity = st.selectbox(
-            'Kedekatan dengan Laut',
-            ('<1H OCEAN', 'INLAND', 'NEAR OCEAN', 'NEAR BAY', 'ISLAND'),
-            help="Pilih kategori lokasi berdasarkan kedekatannya dengan laut."
-        )
-
-    with col2:
-        st.subheader("📋 Spesifikasi Blok Properti")
-        housing_median_age = st.slider('Usia Median Rumah (Tahun)', 1, 52, 25)
-        # PERBAIKAN: Mengganti "Total Kamar" menjadi "Total Ruang" agar konsisten dan lebih akurat.
-        total_rooms = st.number_input('Total Ruang', min_value=0, value=2100, step=100)
-        total_bedrooms = st.number_input('Total Kamar Tidur', min_value=0, value=440, step=50)
-        population = st.number_input('Populasi', min_value=0, value=1200, step=100)
-        households = st.number_input('Jumlah Rumah Tangga', min_value=1, value=410, step=50)
-        median_income = st.number_input('Pendapatan Median (dalam puluhan ribu USD)', min_value=0.0, value=3.2, step=0.5, format="%.2f")
-
-    if st.button('Prediksi Harga', type="primary", use_container_width=True):
-        if model is not None:
-            # --- Preprocessing Input ---
-            # 1. Feature Engineering
-            # PERBAIKAN: Pengecekan pembagian dengan nol yang lebih aman
-            if households > 0 and total_rooms > 0 and total_bedrooms > 0:
-                rooms_per_household = total_rooms / households
-                bedrooms_per_room = total_bedrooms / total_rooms
-                population_per_household = population / households
-            else:
-                st.error("Jumlah Rumah Tangga, Total Ruang, dan Total Kamar Tidur harus lebih dari 0 untuk perhitungan rasio.")
-                return
-
-            # 2. One-Hot Encoding manual
-            # SARAN: Untuk aplikasi produksi, lebih baik menggunakan pipeline Scikit-Learn
-            # yang menyertakan encoder yang sudah di-'fit' untuk menghindari kesalahan.
-            ocean_features = {f'ocean_{cat}': 0 for cat in ('<1H OCEAN', 'INLAND', 'NEAR OCEAN', 'NEAR BAY', 'ISLAND')}
-            if f'ocean_{ocean_proximity}' in ocean_features:
-                ocean_features[f'ocean_{ocean_proximity}'] = 1
-
-            # Kolom harus sesuai persis dengan yang digunakan saat training model
-            expected_columns = [
-                'longitude', 'latitude', 'housing_median_age', 'total_rooms', 'total_bedrooms',
-                'population', 'households', 'median_income', 'rooms_per_household',
-                'bedrooms_per_room', 'population_per_household',
-                'ocean_<1H OCEAN', 'ocean_INLAND', 'ocean_ISLAND', 'ocean_NEAR BAY',
-                'ocean_NEAR OCEAN'
-            ]
-
-            # Membuat DataFrame dari input
-            input_data = pd.DataFrame([[
-                longitude, latitude, housing_median_age, total_rooms, total_bedrooms,
-                population, households, median_income, rooms_per_household,
-                bedrooms_per_room, population_per_household,
-                ocean_features['ocean_<1H OCEAN'], ocean_features['ocean_INLAND'],
-                ocean_features['ocean_ISLAND'], ocean_features['ocean_NEAR BAY'],
-                ocean_features['ocean_NEAR OCEAN']
-            ]], columns=expected_columns)
-
-            try:
-                # Melakukan prediksi
-                prediction = model.predict(input_data)[0]
-                st.success(f"Prediksi Median Harga Rumah: **${prediction:,.2f}**")
-            except Exception as e:
-                st.error(f"Terjadi kesalahan saat prediksi: {e}")
-                st.warning("Pastikan urutan dan nama kolom pada input data sudah sesuai dengan model yang dilatih.")
-        else:
-            st.error("Model tidak dapat dimuat, prediksi tidak bisa dilakukan.")
-
-# --- FUNGSI TAMPILAN UNTUK Market Survey ---
-def buyer_view():
-    """
-    Menampilkan halaman untuk Market Survey yang memungkinkan mereka memfilter dan
-    mengeksplorasi properti yang ada di dataset.
-    """
-    st.header("🏡 Eksplorasi Properti untuk Market Survey")
-    st.write("Gunakan filter di sidebar untuk menemukan area properti yang sesuai dengan kriteria Anda.")
-
-    # --- Filter di Sidebar ---
-    st.sidebar.title("Filter Properti")
-    
-    min_price = int(df['median_house_value'].min())
-    max_price = int(df['median_house_value'].max())
-    price_range = st.sidebar.slider(
-        'Rentang Harga ($)',
-        min_value=min_price,
-        max_value=max_price,
-        value=(min_price, 200000)
-    )
-
-    location_filter = st.sidebar.multiselect(
-        'Pilih Lokasi',
-        options=df['ocean_proximity'].unique(),
-        default=df['ocean_proximity'].unique()
-    )
-    
-    max_rooms = int(df['total_rooms'].max())
-    rooms_range = st.sidebar.slider(
-        'Rentang Total Ruang',
-        min_value=int(df['total_rooms'].min()),
-        max_value=min(max_rooms, 10000),
-        value=(1000, 3000)
-    )
-
-    max_bedrooms = int(df['total_bedrooms'].max())
-    bedrooms_range = st.sidebar.slider(
-        'Rentang Total Kamar Tidur',
-        min_value=int(df['total_bedrooms'].min()),
-        max_value=min(max_bedrooms, 2500),
-        value=(200, 600)
-    )
-
-    filtered_df = df[
-        (df['median_house_value'].between(price_range[0], price_range[1])) &
-        (df['ocean_proximity'].isin(location_filter)) &
-        (df['total_rooms'].between(rooms_range[0], rooms_range[1])) &
-        (df['total_bedrooms'].between(bedrooms_range[0], bedrooms_range[1]))
-    ].copy()
-
-    st.write(f"Ditemukan **{len(filtered_df)}** blok properti yang sesuai dengan kriteria Anda.")
-
-    # --- Visualisasi Peta ---
-    st.subheader("Peta Sebaran Properti")
-
-    # Tambahkan toggle untuk pewarnaan peta
-    color_by = st.radio(
-        "Pilih pewarnaan plot:",
-        ('Intensitas Harga', 'Kategori Lokasi'),
-        horizontal=True,
-        key='color_toggle'
-    )
-
-    if not filtered_df.empty:
-        layer = None
-        if color_by == 'Intensitas Harga':
-            layer = pdk.Layer(
-                'ScatterplotLayer',
-                data=filtered_df,
-                get_position='[longitude, latitude]',
-                get_fill_color='[255, (255 - (median_house_value / 2000)), 0, 140]',
-                get_radius=1500,
-                pickable=True,
-            )
-            st.info("💡 **Catatan Peta:** Warna titik merepresentasikan harga properti. **Kuning** untuk harga lebih rendah, dan semakin **merah** untuk harga yang lebih tinggi.")
-        else: # Kategori Lokasi
-            ocean_palette = {
-                'NEAR BAY': (120, 173, 210, 140),
-                '<1H OCEAN': (255, 178, 110, 140),
-                'INLAND': (128, 198, 128, 140),
-                'NEAR OCEAN': (230, 125, 126, 140),
-                'ISLAND': (190, 164, 215, 140)
-            }
-            filtered_df['color'] = filtered_df['ocean_proximity'].map(ocean_palette)
+        # Left column for filters and prediction
+        html.Div(style={'width': '25%', 'padding': '20px', 'backgroundColor': '#282828', 'border-radius': '10px'}, children=[
+            html.H3("Filters and Prediction", style={'border-bottom': '2px solid white', 'padding-bottom': '10px'}),
             
-            layer = pdk.Layer(
-                'ScatterplotLayer',
-                data=filtered_df,
-                get_position='[longitude, latitude]',
-                get_fill_color='color', # Gunakan kolom warna yang baru dibuat
-                get_radius=1500,
-                pickable=True,
-            )
+            # Filters section
+            html.Div([
+                html.Label("Population"),
+                dcc.RangeSlider(
+                    id='population-slider',
+                    min=df['population'].min(),
+                    max=df['population'].max(),
+                    value=[df['population'].min(), df['population'].max()],
+                    marks={i: str(i) for i in range(int(df['population'].min()), int(df['population'].max()) + 1, 5000)},
+                    tooltip={"placement": "bottom", "always_visible": True}
+                ),
+                html.Label("Median Income"),
+                dcc.RangeSlider(
+                    id='median-income-slider',
+                    min=df['median_income'].min(),
+                    max=df['median_income'].max(),
+                    value=[df['median_income'].min(), df['median_income'].max()],
+                    marks={i: f'${i/1000:.0f}k' for i in range(int(df['median_income'].min()), int(df['median_income'].max()) + 1, 20000)},
+                    tooltip={"placement": "bottom", "always_visible": True}
+                ),
+                html.Label("Median House Value"),
+                dcc.RangeSlider(
+                    id='median-house-value-slider',
+                    min=df['median_house_value'].min(),
+                    max=df['median_house_value'].max(),
+                    value=[df['median_house_value'].min(), df['median_house_value'].max()],
+                    marks={i: f'${i/1000:.0f}k' for i in range(int(df['median_house_value'].min()), int(df['median_house_value'].max()) + 1, 100000)},
+                    tooltip={"placement": "bottom", "always_visible": True}
+                ),
+                html.Label("Ocean Proximity"),
+                dcc.Dropdown(
+                    id='ocean-proximity-dropdown',
+                    options=[{'label': i, 'value': i} for i in df['ocean_proximity'].unique()],
+                    value=list(df['ocean_proximity'].unique()),
+                    multi=True,
+                    style={'color': 'black'}
+                ),
+            ], style={'margin-bottom': '40px'}),
             
-            # Buat legenda manual untuk kategori lokasi
-            st.markdown("##### Legenda Kategori Lokasi:")
-            cols = st.columns(len(ocean_palette))
-            for i, (category, color) in enumerate(ocean_palette.items()):
-                with cols[i]:
-                    st.markdown(
-                        f'<p style="color:rgb{color[:3]}; font-weight: bold;">■ {category}</p>',
-                        unsafe_allow_html=True
-                    )
+            # Prediction section
+            html.H4("Predict House Value", style={'border-bottom': '1px solid white', 'padding-bottom': '5px', 'margin-top': '20px'}),
+            html.Div(id='prediction-inputs', children=[
+                dcc.Input(id='longitude', type='number', placeholder='Longitude', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='latitude', type='number', placeholder='Latitude', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='housing_median_age', type='number', placeholder='Housing Median Age', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='total_rooms', type='number', placeholder='Total Rooms', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='total_bedrooms', type='number', placeholder='Total Bedrooms', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='population', type='number', placeholder='Population', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='households', type='number', placeholder='Households', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Input(id='median_income_pred', type='number', placeholder='Median Income', style={'margin': '5px', 'width': 'calc(50% - 10px)'}),
+                dcc.Dropdown(
+                    id='ocean_proximity_pred',
+                    options=[{'label': i, 'value': i} for i in df['ocean_proximity'].unique()],
+                    placeholder='Ocean Proximity',
+                    style={'margin': '5px', 'width': 'calc(100% - 10px)', 'color': 'black'}
+                ),
+            ]),
+            html.Button('Predict', id='predict-button', n_clicks=0, style={'margin-top': '20px', 'width': '100%'}),
+            html.Div(id='prediction-output', style={'margin-top': '20px', 'font-size': '20px', 'text-align': 'center'})
+        ]),
         
-        st.pydeck_chart(pdk.Deck(
-            map_style='https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-            initial_view_state=pdk.ViewState(
-                latitude=filtered_df['latitude'].mean(),
-                longitude=filtered_df['longitude'].mean(),
-                zoom=6,
-                pitch=45,
+        # Right column for visualizations
+        html.Div(style={'width': '75%'}, children=[
+            dcc.Tabs(id="tabs", value='tab-1', children=[
+                dcc.Tab(label='Market Value Map', value='tab-1', style={'backgroundColor': '#282828', 'color': 'white'}, selected_style={'backgroundColor': '#1E1E1E', 'color': 'white', 'borderTop': '2px solid #1E90FF'}),
+                dcc.Tab(label='Distribution Insights', value='tab-2', style={'backgroundColor': '#282828', 'color': 'white'}, selected_style={'backgroundColor': '#1E1E1E', 'color': 'white', 'borderTop': '2px solid #1E90FF'}),
+                dcc.Tab(label='Correlation Analysis', value='tab-3', style={'backgroundColor': '#282828', 'color': 'white'}, selected_style={'backgroundColor': '#1E1E1E', 'color': 'white', 'borderTop': '2px solid #1E90FF'})
+            ], style={'height': '48px'}),
+            html.Div(id='tabs-content', style={'padding': '20px', 'backgroundColor': '#282828', 'border-radius': '10px', 'margin-top': '10px'})
+        ])
+    ])
+])
+
+# Callback to render tab content
+@app.callback(Output('tabs-content', 'children'),
+              Input('tabs', 'value'))
+def render_content(tab):
+    if tab == 'tab-1':
+        return html.Div([
+            dcc.Graph(id='scatter-geo', style={'height': '80vh'})
+        ])
+    elif tab == 'tab-2':
+        return html.Div([
+            html.Label("Select feature for distribution plot:"),
+            dcc.Dropdown(
+                id='dist-feature-dropdown',
+                options=[{'label': col, 'value': col} for col in df.columns if df[col].dtype in ['int64', 'float64']],
+                value='median_house_value',
+                style={'color': 'black'}
             ),
-            layers=[layer],
-            tooltip={"html": "Median Harga: <b>${median_house_value}</b><br/>Lokasi: {ocean_proximity}"}
-        ))
+            dcc.Graph(id='distribution-plot')
+        ])
+    elif tab == 'tab-3':
+        return html.Div([
+            dcc.Graph(id='correlation-heatmap', style={'height': '80vh'})
+        ])
 
-        st.subheader("Detail Properti yang Difilter")
-        st.dataframe(filtered_df[[
-            'longitude', 'latitude', 'median_house_value', 'ocean_proximity', 
-            'total_rooms', 'total_bedrooms', 'population', 'households'
-        ]].head(10))
-    else:
-        st.warning("Tidak ada properti yang ditemukan dengan kriteria tersebut. Silakan sesuaikan filter Anda.")
-
-
-# --- LAYOUT UTAMA APLIKASI ---
-st.title("🏠 California Property Insights Dashboard")
-
-# Navigasi di sidebar
-selected_view = st.sidebar.radio(
-    "Pilih Tampilan Anda:",
-    ("Market Survey", "Investment Predictor"),
-    key="view_selector"
+# Update graph callback
+@app.callback(
+    Output('scatter-geo', 'figure'),
+    [Input('population-slider', 'value'),
+     Input('median-income-slider', 'value'),
+     Input('median-house-value-slider', 'value'),
+     Input('ocean-proximity-dropdown', 'value')]
 )
+def update_graph(population_range, median_income_range, median_house_value_range, ocean_proximity):
+    # Filter the data based on the slider ranges and dropdown selection
+    filtered_df = df[
+        (df['population'] >= population_range[0]) & (df['population'] <= population_range[1]) &
+        (df['median_income'] >= median_income_range[0]) & (df['median_income'] <= median_income_range[1]) &
+        (df['median_house_value'] >= median_house_value_range[0]) & (df['median_house_value'] <= median_house_value_range[1])
+    ]
+    if ocean_proximity:
+        filtered_df = filtered_df[filtered_df['ocean_proximity'].isin(ocean_proximity)]
 
-# Menampilkan halaman yang dipilih berdasarkan navigasi
-if df is not None and model is not None:
-    if selected_view == "Investment Predictor":
-        investor_view()
-    elif selected_view == "Market Survey":
-        buyer_view()
-else:
-    st.error("Gagal memuat data atau model. Aplikasi tidak dapat berjalan. Mohon periksa file di direktori Anda.")
+    # Create the scatter geo plot
+    fig = px.scatter_geo(
+        filtered_df,
+        lat='latitude',
+        lon='longitude',
+        color='median_house_value',
+        color_continuous_scale='Viridis',
+        scope='usa',
+        hover_name='ocean_proximity',
+        hover_data=['median_house_value', 'median_income'],
+        labels={'median_house_value': 'Median House Value', 'median_income': 'Median Income'},
+        template='plotly_dark'
+    )
 
+    # Update the layout of the map
+    fig.update_layout(
+        geo=dict(
+            scope='usa',
+            projection_type='albers usa',
+            showland=True,
+            landcolor='rgb(217, 217, 217)',
+            subunitcolor='rgb(255, 255, 255)',
+            countrycolor='rgb(255, 255, 255)',
+            bgcolor='rgba(0,0,0,0)'
+        ),
+        margin=dict(l=0, r=0, t=30, b=0),
+        legend_title_text='Median House Value',
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=-0.1,
+            xanchor='center',
+            x=0.5
+        )
+    )
+
+    return fig
+
+# Callback for distribution plot
+@app.callback(
+    Output('distribution-plot', 'figure'),
+    Input('dist-feature-dropdown', 'value')
+)
+def update_distribution_plot(selected_feature):
+    fig = px.histogram(df, x=selected_feature, title=f'Distribution of {selected_feature}', template='plotly_dark')
+    fig.update_layout(bargap=0.2, title_x=0.5)
+    return fig
+
+# Callback for correlation heatmap
+@app.callback(
+    Output('correlation-heatmap', 'figure'),
+    Input('tabs', 'value') # Triggered when the tab is selected
+)
+def update_heatmap(tab_value):
+    if tab_value == 'tab-3':
+        numeric_cols = df.select_dtypes(include=np.number)
+        corr = numeric_cols.corr()
+        fig = px.imshow(corr, text_auto=True, aspect="auto", template='plotly_dark', title='Feature Correlation Matrix')
+        fig.update_layout(title_x=0.5)
+        return fig
+    return dash.no_update
+
+# Prediction callback
+@app.callback(
+    Output('prediction-output', 'children'),
+    [Input('predict-button', 'n_clicks')],
+    [State('longitude', 'value'),
+     State('latitude', 'value'),
+     State('housing_median_age', 'value'),
+     State('total_rooms', 'value'),
+     State('total_bedrooms', 'value'),
+     State('population', 'value'),
+     State('households', 'value'),
+     State('median_income_pred', 'value'),
+     State('ocean_proximity_pred', 'value')]
+)
+def update_prediction(n_clicks, longitude, latitude, housing_median_age, total_rooms, total_bedrooms, population, households, median_income, ocean_proximity):
+    if n_clicks > 0:
+        try:
+            # Create a dataframe for the input
+            input_data = pd.DataFrame({
+                'longitude': [longitude],
+                'latitude': [latitude],
+                'housing_median_age': [housing_median_age],
+                'total_rooms': [total_rooms],
+                'total_bedrooms': [total_bedrooms],
+                'population': [population],
+                'households': [households],
+                'median_income': [median_income],
+                'ocean_proximity': [ocean_proximity]
+            })
+
+            # Preprocessing for the input data
+            input_data['rooms_per_person'] = input_data['total_rooms'] / input_data['population']
+            input_data['bedrooms_per_room'] = input_data['total_bedrooms'] / input_data['total_rooms']
+            input_data['population_per_household'] = input_data['population'] / input_data['households']
+            
+            # One-hot encode ocean_proximity
+            input_data = pd.get_dummies(input_data, columns=['ocean_proximity'], drop_first=True)
+            
+            # Align columns with the model's training columns
+            model_cols = model.feature_names_in_
+            input_data = input_data.reindex(columns=model_cols, fill_value=0)
+
+            # Predict
+            prediction = model.predict(input_data)
+            
+            return f'Predicted House Value: ${prediction[0]:,.2f}'
+        except Exception as e:
+            return f'Error: {e}. Please check your inputs.'
+    return ''
+
+# Run the app
+if __name__ == '__main__':
+    app.run_server(debug=True)
